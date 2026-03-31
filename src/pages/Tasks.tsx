@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Plus, Circle, CheckCircle, Clock, Loader, Pencil, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Circle, CheckCircle, Clock, Loader, Pencil, Trash2, AlertCircle, Archive, ArchiveRestore, ChevronDown, ChevronUp } from 'lucide-react';
 import { selectDb, executeDb } from '../lib/db';
 import { logTaskAction } from '../lib/taskLogs';
 import { TaskModal, type TaskFormData, type TaskStatus, type TaskPriority } from '../components/TaskModal';
@@ -13,6 +13,7 @@ interface Task {
   priority: TaskPriority;
   due_date: string | null;
   category: string | null;
+  archived: number;
   created_at: string;
   updated_at: string;
 }
@@ -49,17 +50,26 @@ const FILTER_LABELS: { key: FilterTab; label: string }[] = [
 
 export default function Tasks() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [filter, setFilter] = useState<FilterTab>('all');
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [archivingId, setArchivingId] = useState<number | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const loadTasks = async () => {
-    const rows = await selectDb<Task>(
-      'SELECT id, title, description, status, priority, due_date, category, created_at, updated_at FROM tasks ORDER BY created_at DESC'
-    );
-    setTasks(rows);
+    const [active, archived] = await Promise.all([
+      selectDb<Task>(
+        'SELECT id, title, description, status, priority, due_date, category, archived, created_at, updated_at FROM tasks WHERE archived = 0 ORDER BY created_at DESC'
+      ),
+      selectDb<Task>(
+        'SELECT id, title, description, status, priority, due_date, category, archived, created_at, updated_at FROM tasks WHERE archived = 1 ORDER BY updated_at DESC'
+      ),
+    ]);
+    setTasks(active);
+    setArchivedTasks(archived);
   };
 
   useEffect(() => {
@@ -134,8 +144,49 @@ export default function Tasks() {
     }
   };
 
+  const handleArchive = async (task: Task) => {
+    try {
+      await executeDb(
+        'UPDATE tasks SET archived=1, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+        [task.id]
+      );
+      await logTaskAction({
+        taskId: task.id,
+        actionType: 'archive',
+        beforeJson: { archived: 0, status: task.status },
+        actorType: 'user',
+      });
+      setArchivingId(null);
+      loadTasks();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrorMsg(`アーカイブに失敗しました: ${msg}`);
+      setArchivingId(null);
+    }
+  };
+
+  const handleRestore = async (task: Task) => {
+    try {
+      await executeDb(
+        'UPDATE tasks SET archived=0, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+        [task.id]
+      );
+      await logTaskAction({
+        taskId: task.id,
+        actionType: 'restore',
+        beforeJson: { archived: 1 },
+        afterJson: { archived: 0 },
+        actorType: 'user',
+      });
+      loadTasks();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrorMsg(`復元に失敗しました: ${msg}`);
+    }
+  };
+
   const handleDelete = async (id: number) => {
-    const task = tasks.find(t => t.id === id);
+    const task = tasks.find(t => t.id === id) ?? archivedTasks.find(t => t.id === id);
     try {
       await executeDb('DELETE FROM tasks WHERE id=?', [id]);
       await logTaskAction({
@@ -205,7 +256,7 @@ export default function Tasks() {
         ))}
       </div>
 
-      {/* タスクリスト */}
+      {/* アクティブなタスクリスト */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         {filteredTasks.length === 0 ? (
           <div className="text-center text-gray-400 py-12 text-sm">タスクがありません</div>
@@ -246,7 +297,23 @@ export default function Tasks() {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {PRIORITY_BADGE[task.priority]}
 
-                  {deletingId === task.id ? (
+                  {archivingId === task.id ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-500">アーカイブしますか？</span>
+                      <button
+                        onClick={() => handleArchive(task)}
+                        className="text-xs bg-sebastian-navy text-white px-2 py-1 rounded hover:bg-sebastian-dark transition-colors"
+                      >
+                        アーカイブ
+                      </button>
+                      <button
+                        onClick={() => setArchivingId(null)}
+                        className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded hover:bg-gray-300 transition-colors"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  ) : deletingId === task.id ? (
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-gray-500">削除しますか？</span>
                       <button
@@ -272,7 +339,14 @@ export default function Tasks() {
                         <Pencil size={14} />
                       </button>
                       <button
-                        onClick={() => setDeletingId(task.id)}
+                        onClick={() => { setArchivingId(task.id); setDeletingId(null); }}
+                        className="p-1.5 text-gray-400 hover:text-sebastian-navy hover:bg-gray-100 rounded-lg transition-colors"
+                        title="アーカイブ"
+                      >
+                        <Archive size={14} />
+                      </button>
+                      <button
+                        onClick={() => { setDeletingId(task.id); setArchivingId(null); }}
                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         title="削除"
                       >
@@ -286,6 +360,83 @@ export default function Tasks() {
           </ul>
         )}
       </div>
+
+      {/* アーカイブ済みセクション */}
+      {archivedTasks.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className="flex items-center gap-2 text-sm text-gray-400 hover:text-sebastian-gray transition-colors w-full py-1"
+          >
+            {showArchived ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            <Archive size={14} />
+            アーカイブ済み（{archivedTasks.length}件）
+          </button>
+
+          {showArchived && (
+            <div className="mt-3 bg-gray-50 rounded-xl border border-gray-100">
+              <ul className="divide-y divide-gray-100">
+                {archivedTasks.map(task => (
+                  <li key={task.id} className="flex items-center gap-3 px-5 py-3 group">
+                    <Archive size={16} className="text-gray-300 flex-shrink-0" />
+
+                    <div className="flex-1 min-w-0">
+                      <span className="block text-sm text-gray-400 line-through">
+                        {task.title}
+                      </span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {task.category && (
+                          <span className="text-xs text-gray-300">{task.category}</span>
+                        )}
+                        {task.due_date && (
+                          <span className="text-xs text-gray-300">
+                            期日: {format(new Date(task.due_date + 'T00:00:00'), 'M/d')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleRestore(task)}
+                        className="flex items-center gap-1 text-xs text-gray-400 hover:text-sebastian-navy hover:bg-white px-2 py-1 rounded-lg transition-colors"
+                        title="復元"
+                      >
+                        <ArchiveRestore size={13} />
+                        復元
+                      </button>
+                      {deletingId === task.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleDelete(task.id)}
+                            className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition-colors"
+                          >
+                            削除
+                          </button>
+                          <button
+                            onClick={() => setDeletingId(null)}
+                            className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded hover:bg-gray-300 transition-colors"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeletingId(task.id)}
+                          className="p-1.5 text-gray-300 hover:text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                          title="完全に削除"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* モーダル */}
       {modalMode === 'create' && (

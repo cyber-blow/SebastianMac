@@ -83,6 +83,12 @@ pub fn run() {
             ",
             kind: MigrationKind::Up,
         }
+        Migration {
+            version: 2,
+            description: "add_archived_to_tasks",
+            sql: "ALTER TABLE tasks ADD COLUMN archived INTEGER DEFAULT 0;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
