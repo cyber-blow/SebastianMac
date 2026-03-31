@@ -82,7 +82,7 @@ pub fn run() {
             );
             ",
             kind: MigrationKind::Up,
-        }
+        },
         Migration {
             version: 2,
             description: "add_archived_to_tasks",
