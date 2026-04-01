@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { invoke } from '@tauri-apps/api/core';
-import { Sparkles, CheckCircle, AlertCircle, Pencil, Download } from 'lucide-react';
+import { Sparkles, CheckCircle, AlertCircle, Pencil } from 'lucide-react';
 import { selectDb, executeDb } from '../lib/db';
 import { PageHeader, OrnateCard, CardHeading } from '../components/ClassicUI';
 import { generateDailyReport, extractTaskCandidates, type TaskLogEntry, type TaskEntry, type TaskCandidate } from '../lib/ai';
@@ -116,21 +116,6 @@ export default function DailyReport() {
     }
   };
 
-  const handleExportMd = async () => {
-    if (!savePath) {
-      setErrorMsg('保存先フォルダが設定されていません。設定画面から指定してください。');
-      return;
-    }
-    try {
-      const fileName = `Nippo_${today.replace(/-/g, '')}.md`;
-      const filePath = `${savePath}/${fileName}`.replace(/\\/g, '/');
-      await invoke<void>('write_text_file', { path: filePath, content: savedContent });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMsg(`書き出しに失敗しました: ${msg}`);
-    }
-  };
-
   const savePathNote = savePath
     ? `保存先: ${savePath}/Nippo_${today.replace(/-/g, '')}.md`
     : '※ 設定から保存先フォルダを指定するとMarkdownファイルも保存されます';
@@ -154,22 +139,13 @@ export default function DailyReport() {
               <CheckCircle size={16} />
               本日の日報は承認済みです
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleExportMd}
-                className="flex items-center gap-1.5 text-sm text-sebastian-gray hover:text-sebastian-navy transition-colors"
-              >
-                <Download size={14} />
-                MDで書き出す
-              </button>
-              <button
-                onClick={() => { setDraft(savedContent); setPageState('draft'); setCandidateState('idle'); }}
-                className="flex items-center gap-1.5 text-sm text-sebastian-gray hover:text-sebastian-navy transition-colors"
-              >
-                <Pencil size={14} />
-                再編集
-              </button>
-            </div>
+            <button
+              onClick={() => { setDraft(savedContent); setPageState('draft'); setCandidateState('idle'); }}
+              className="flex items-center gap-1.5 text-sm text-sebastian-gray hover:text-sebastian-navy transition-colors"
+            >
+              <Pencil size={14} />
+              再編集
+            </button>
           </div>
           <OrnateCard className="p-6">
             <pre className="whitespace-pre-wrap text-sm text-sebastian-text leading-relaxed font-sans">

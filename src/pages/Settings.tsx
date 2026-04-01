@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
-import { FolderOpen, CheckCircle, AlertCircle, Wifi, WifiOff, RefreshCw, Eye, EyeOff, Upload, Download, Clock } from 'lucide-react';
+import { FolderOpen, CheckCircle, AlertCircle, Wifi, WifiOff, RefreshCw, Eye, EyeOff, Upload, Download, Clock, FileDown } from 'lucide-react';
 import { getSetting, setSetting, SETTING_KEYS } from '../lib/settings';
 import { PageHeader, OrnateCard, CardHeading } from '../components/ClassicUI';
 import { registerShortcut } from '../lib/shortcut';
 import { checkOllamaConnection, checkGeminiConnection, type OllamaStatus } from '../lib/ai';
 import { pushSync, pullSync, getSyncFolderDbMtime } from '../lib/sync';
+import { selectDb } from '../lib/db';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 
@@ -44,6 +46,8 @@ export default function Settings() {
     reminderWeekdaysOnly: true,
     syncFolder: '',
   });
+  const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done' | 'error'>('idle');
+  const [exportMsg, setExportMsg] = useState('');
   const [syncStatus, setSyncStatus] = useState<'idle' | 'pushing' | 'pulling' | 'done' | 'error'>('idle');
   const [syncMsg, setSyncMsg] = useState('');
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
@@ -185,6 +189,60 @@ export default function Settings() {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg(`保存に失敗しました: ${msg}`);
       setSaveStatus('error');
+    }
+  };
+
+  const handleExportAll = async () => {
+    setExportStatus('exporting');
+    setExportMsg('');
+    let dailyCount = 0;
+    let weeklyCount = 0;
+    const errors: string[] = [];
+
+    try {
+      if (form.dailyReportPath) {
+        const rows = await selectDb<{ date: string; content: string }>(
+          'SELECT date, content FROM reports_daily ORDER BY date ASC'
+        );
+        for (const row of rows) {
+          try {
+            const fileName = `Nippo_${row.date.replace(/-/g, '')}.md`;
+            const filePath = `${form.dailyReportPath}/${fileName}`.replace(/\\/g, '/');
+            await invoke<void>('write_text_file', { path: filePath, content: row.content });
+            dailyCount++;
+          } catch {
+            errors.push(`日報 ${row.date} の書き出し失敗`);
+          }
+        }
+      }
+
+      if (form.weeklyReportPath) {
+        const rows = await selectDb<{ week_start_date: string; content: string }>(
+          'SELECT week_start_date, content FROM reports_weekly ORDER BY week_start_date ASC'
+        );
+        for (const row of rows) {
+          try {
+            const fileName = `Shuho_${row.week_start_date.replace(/-/g, '')}.md`;
+            const filePath = `${form.weeklyReportPath}/${fileName}`.replace(/\\/g, '/');
+            await invoke<void>('write_text_file', { path: filePath, content: row.content });
+            weeklyCount++;
+          } catch {
+            errors.push(`週報 ${row.week_start_date} の書き出し失敗`);
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        setExportStatus('error');
+        setExportMsg(errors.join(' / '));
+      } else {
+        setExportStatus('done');
+        setExportMsg(`日報 ${dailyCount} 件・週報 ${weeklyCount} 件を書き出しました`);
+        setTimeout(() => setExportStatus('idle'), 5000);
+      }
+    } catch (e: unknown) {
+      setExportStatus('error');
+      setExportMsg(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -471,6 +529,42 @@ export default function Settings() {
             </p>
           </div>
         )}
+        </div>
+      </OrnateCard>
+
+      {/* レポートMD一括書き出し */}
+      <OrnateCard className="p-6">
+        <div className="space-y-4">
+          <CardHeading>レポートMD一括書き出し</CardHeading>
+          <p className="text-xs text-sebastian-lightgray -mt-2">
+            DBに保存されている全ての日報・週報をMarkdownファイルとして書き出します。<br />
+            別端末でDB同期後に実行すると、過去分も含めて一括で取り出せます。
+          </p>
+          <div className="bg-sebastian-parchment/50 rounded-lg px-3 py-2.5 border border-sebastian-border/40 text-xs text-sebastian-lightgray space-y-0.5">
+            <p>日報 → {form.dailyReportPath || '（設定から保存先フォルダを指定してください）'}</p>
+            <p>週報 → {form.weeklyReportPath || '（設定から保存先フォルダを指定してください）'}</p>
+          </div>
+          <button
+            onClick={handleExportAll}
+            disabled={exportStatus === 'exporting' || (!form.dailyReportPath && !form.weeklyReportPath)}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-serif transition-colors disabled:opacity-50"
+            style={{ backgroundColor: '#131929', color: '#d4c9a8', border: '1px solid rgba(201,164,86,0.3)' }}
+          >
+            <FileDown size={15} />
+            {exportStatus === 'exporting' ? '書き出し中...' : '全レポートをMDで書き出す'}
+          </button>
+          {exportStatus === 'done' && (
+            <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-lg px-3 py-2.5 text-sm text-green-700">
+              <CheckCircle size={15} />
+              {exportMsg}
+            </div>
+          )}
+          {exportStatus === 'error' && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5 text-sm text-red-700">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              {exportMsg}
+            </div>
+          )}
         </div>
       </OrnateCard>
 
