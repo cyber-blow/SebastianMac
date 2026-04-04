@@ -260,13 +260,17 @@ struct ActionableTaskRow: View {
             Spacer()
             
             if let date = task.dueDate {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "M/d"
-                Text(formatter.string(from: date))
+                Text(formatDate(date))
                     .font(.system(size: 12))
                     .foregroundColor(Theme.textSecondary.opacity(0.5))
             }
         }
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d"
+        return formatter.string(from: date)
     }
 }
 

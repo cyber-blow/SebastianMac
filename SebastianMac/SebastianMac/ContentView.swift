@@ -106,12 +106,11 @@ struct SidebarView: View {
                     }
                     .padding(.horizontal, 16)
                     
-                    // Butler Image Placeholder
-                    Image(systemName: "person.bust.fill")
+                    // Butler Image
+                    Image("sebastian-butler")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 100, height: 100)
-                        .foregroundColor(Theme.textSecondary.opacity(0.3))
                         .padding(.bottom, 24)
                     
                     // Theme Switcher
