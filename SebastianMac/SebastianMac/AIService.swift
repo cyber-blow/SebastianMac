@@ -23,6 +23,49 @@ class AIService {
         }
     }
     
+    func fetchAvailableModels() async throws -> [String] {
+        let apiKey = UserDefaults.standard.string(forKey: "geminiAPIKey") ?? ""
+        if apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw AIError.noAPIKey
+        }
+        
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models?key=\(apiKey)"
+        guard let url = URL(string: urlString) else {
+            throw AIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            let errorText = String(data: data, encoding: .utf8) ?? "API Error"
+            throw AIError.apiError("Status \(httpResponse.statusCode): \(errorText)")
+        }
+        
+        let dict = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
+        let modelsArray = dict?["models"] as? [[String: Any]] ?? []
+        
+        var availableModels: [String] = []
+        for model in modelsArray {
+            if let methods = model["supportedGenerationMethods"] as? [String],
+               methods.contains("generateContent"),
+               let name = model["name"] as? String {
+                let cleanName = name.replacingOccurrences(of: "models/", with: "")
+                if cleanName.contains("gemini") {
+                    availableModels.append(cleanName)
+                }
+            }
+        }
+        
+        if availableModels.isEmpty {
+            availableModels = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash"]
+        }
+        
+        return availableModels.sorted()
+    }
+    
     func generateNippo(from memos: [String], targetDate: Date) async throws -> String {
         let aiProvider = UserDefaults.standard.string(forKey: "aiProvider") ?? "gemini"
         

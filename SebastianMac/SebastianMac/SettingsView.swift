@@ -16,6 +16,9 @@ struct SettingsView: View {
     @AppStorage("appTheme") private var appTheme: String = "sepia"
     
     @State private var showAPIKey = false
+    @State private var availableModels: [String] = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash", "gemini-2.5-flash"]
+    @State private var isFetchingModels: Bool = false
+    @State private var fetchModelError: String? = nil
     
     var body: some View {
         ScrollView {
@@ -110,21 +113,60 @@ struct SettingsView: View {
                             
                             // Model
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("モデル")
-                                    .font(Theme.Fonts.mincho(size: 14))
-                                    .foregroundColor(Theme.textSecondary)
+                                HStack {
+                                    Text("モデル")
+                                        .font(Theme.Fonts.mincho(size: 14))
+                                        .foregroundColor(Theme.textSecondary)
+                                    Spacer()
+                                    if isFetchingModels {
+                                        ProgressView().controlSize(.small)
+                                    }
+                                    Button(action: {
+                                        Task { await fetchModels() }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.triangle.2.circlepath")
+                                            Text("更新")
+                                        }
+                                        .font(Theme.Fonts.mincho(size: 10))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(Theme.goldAccent)
+                                }
                                 
-                                TextField("", text: $geminiModel)
-                                    .font(.system(size: 14))
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .background(Theme.mainBackground)
-                                    .cornerRadius(8)
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15), lineWidth: 1))
+                                Menu {
+                                    ForEach(availableModels, id: \.self) { model in
+                                        Button(model) {
+                                            geminiModel = model
+                                        }
+                                    }
+                                } label: {
+                                    Text(geminiModel.isEmpty ? "モデルを選択" : geminiModel)
+                                        .font(.system(size: 14))
+                                        .foregroundColor(Theme.textPrimary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .menuStyle(.borderlessButton)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Theme.mainBackground)
+                                .cornerRadius(8)
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15), lineWidth: 1))
                                 
-                                Text("推奨: gemini-2.5-flash (無料・高速)")
-                                    .font(Theme.Fonts.mincho(size: 10))
-                                    .foregroundColor(Theme.textSecondary.opacity(0.8))
+                                if let error = fetchModelError {
+                                    Text(error)
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.red)
+                                } else {
+                                    Text("推奨: gemini-1.5-flash (無料・高速)")
+                                        .font(Theme.Fonts.mincho(size: 10))
+                                        .foregroundColor(Theme.textSecondary.opacity(0.8))
+                                }
+                            }
+                            .onAppear {
+                                if !geminiAPIKey.isEmpty {
+                                    Task { await fetchModels() }
+                                }
                             }
                         } else if aiProvider == "ollama" {
                             // Ollama Model
@@ -267,6 +309,27 @@ struct SettingsView: View {
             .padding(40)
         }
     }
+
+    private func fetchModels() async {
+        guard !geminiAPIKey.isEmpty else { return }
+        isFetchingModels = true
+        fetchModelError = nil
+        do {
+            let models = try await AIService.shared.fetchAvailableModels()
+            await MainActor.run {
+                availableModels = models
+                if !models.contains(geminiModel) && !models.isEmpty {
+                    geminiModel = models.first!
+                }
+                isFetchingModels = false
+            }
+        } catch {
+            await MainActor.run {
+                fetchModelError = "モデル取得失敗: \(error.localizedDescription)"
+                isFetchingModels = false
+            }
+        }
+    }
 }
 
 // MARK: - Component UI
@@ -376,4 +439,5 @@ struct PathSelectorRow: View {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.15), lineWidth: 1))
         }
     }
+
 }

@@ -4,6 +4,10 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appTheme") private var appTheme: String = "sepia"
+    @AppStorage("sidebarWidth") private var sidebarWidth: Double = 240
+    @AppStorage("isSidebarCollapsed") private var isSidebarCollapsed: Bool = false
+    @State private var tempSidebarWidth: Double? = nil
+    @State private var dragStartWidth: Double? = nil
     @State private var selectedItem: SidebarItem = .dashboard
     @State private var showBriefing: Bool = false
     @AppStorage("lastBriefingDate") private var lastBriefingDate: String = ""
@@ -11,15 +15,56 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             // Sidebar
-            SidebarView(selectedItem: $selectedItem, appTheme: $appTheme)
-                .frame(width: 240)
+            if !isSidebarCollapsed {
+                SidebarView(selectedItem: $selectedItem, appTheme: $appTheme)
+                    .frame(width: tempSidebarWidth ?? sidebarWidth)
+                    .transition(.move(edge: .leading))
+                    
+                // The resize handle
+                NonDraggableView {
+                    ZStack {
+                        Rectangle()
+                            .fill(Theme.mainBackground)
+                            .frame(width: 16)
+                        
+                        Divider()
+                            .background(Theme.textSecondary.opacity(0.3))
+                            .frame(width: 1)
+                    }
+                }
+                .frame(width: 16)
+                .onHover { inside in
+                    if inside {
+                        NSCursor.resizeLeftRight.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { value in
+                            if dragStartWidth == nil {
+                                dragStartWidth = sidebarWidth
+                            }
+                            let proposed = dragStartWidth! + value.translation.width
+                            tempSidebarWidth = max(150, min(500, proposed))
+                        }
+                        .onEnded { _ in
+                            if let newW = tempSidebarWidth {
+                                sidebarWidth = newW
+                            }
+                            tempSidebarWidth = nil
+                            dragStartWidth = nil
+                        }
+                )
+            }
             
             // Main Content Area
             ZStack {
                 Theme.mainBackground.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    CustomTitleBar()
+                    CustomTitleBar(isSidebarCollapsed: $isSidebarCollapsed)
                     
                     switch selectedItem {
                     case .dashboard:
@@ -173,6 +218,7 @@ struct SidebarMenuRow: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .contentShape(Rectangle())
             .background(isSelected ? Theme.sidebarSelected : Color.clear)
             .cornerRadius(8)
         }
@@ -197,6 +243,7 @@ struct ThemeButton: View {
             .foregroundColor(isSelected ? Theme.goldAccent : Theme.textSecondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
             .background(isSelected ? Theme.sidebarSelected : Color.clear)
             .cornerRadius(4)
         }
@@ -206,14 +253,55 @@ struct ThemeButton: View {
 
 // カスタムタイトルバー（ドラッグ領域）
 struct CustomTitleBar: View {
+    @Binding var isSidebarCollapsed: Bool
+    
     var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 28)
-            .overlay(
-                // Mac標準のシグナル（赤黄緑ボタン）のレイアウト確保用の領域として機能。
-                // 実際のボタンはWindowが自動描画します
-                Color.clear
-            )
+        HStack {
+            Button(action: {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isSidebarCollapsed.toggle()
+                }
+            }) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 14))
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, isSidebarCollapsed ? 80 : 16)
+            
+            Spacer()
+        }
+        .frame(height: 28)
+        .overlay(
+            // Mac標準のシグナル（赤黄緑ボタン）のレイアウト確保用の領域として機能。
+            // 実際のボタンはWindowが自動描画します
+            Color.clear
+        )
+    }
+}
+
+// ドラッグによるウィンドウ移動を無効化するView
+struct NonDraggableView<Content: View>: NSViewRepresentable {
+    var content: () -> Content
+    
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+    
+    class NonDraggableHostingView: NSHostingView<Content> {
+        override var mouseDownCanMoveWindow: Bool {
+            return false
+        }
+    }
+    
+    func makeNSView(context: Context) -> NonDraggableHostingView {
+        let view = NonDraggableHostingView(rootView: content())
+        return view
+    }
+    
+    func updateNSView(_ nsView: NonDraggableHostingView, context: Context) {
+        nsView.rootView = content()
     }
 }

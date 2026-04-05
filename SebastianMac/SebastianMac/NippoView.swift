@@ -217,6 +217,24 @@ struct NippoView: View {
                     
                     Spacer()
                     
+                    Button(action: {
+                        if let nippoToDelete = nippos.first(where: { Calendar.current.isDate($0.createdAt, inSameDayAs: targetDate) }) {
+                            modelContext.delete(nippoToDelete)
+                            try? modelContext.save()
+                            pageState = .idle
+                            savedContent = ""
+                            candidateState = .idle
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "trash")
+                            Text("削除")
+                        }
+                        .font(Theme.Fonts.mincho(size: 12))
+                        .foregroundColor(.red.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
+                    
                     Button(action: { pageState = .draft; draft = savedContent; candidateState = .idle }) {
                         HStack(spacing: 4) {
                             Image(systemName: "pencil")
